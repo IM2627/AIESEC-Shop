@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Supabase Connection Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: Arial; padding: 40px; }
+    .result { margin: 20px 0; padding: 15px; border-radius: 5px; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .info { background: #d1ecf1; color: #0c5460; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Supabase Connection Diagnostics</h1>
+  
+  <div id="results"></div>
+  
+  <button onclick="testConnection()">Test Connection</button>
+  <button onclick="testAuth()">Test Authentication</button>
+  
+  <script>
+    const SUPABASE_URL = 'https://icqeoanqdqtxvbyakfcf.supabase.co'
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljcWVvYW5xZHF0eHZieWFrZmNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5NjAyMzEsImV4cCI6MjA4NTUzNjIzMX0.szOdGsgRlR4k6S6FypF2mvX2K-HCPezeG4ozDc58IUQ'
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+    
+    function addResult(message, type = 'info') {
+      const div = document.createElement('div')
+      div.className = `result ${type}`
+      div.innerHTML = message
+      document.getElementById('results').appendChild(div)
+    }
+    
+    async function testConnection() {
+      document.getElementById('results').innerHTML = ''
+      addResult('🔄 Testing Supabase connection...', 'info')
+      
+      try {
+        const { data, error } = await supabase.from('items').select('count')
+        
+        if (error) {
+          addResult(`❌ Connection Error: ${error.message}`, 'error')
+        } else {
+          addResult('✅ Connection successful! Database is accessible.', 'success')
+        }
+      } catch (err) {
+        addResult(`❌ Network Error: ${err.message}`, 'error')
+      }
+    }
+    
+    async function testAuth() {
+      document.getElementById('results').innerHTML = ''
+      addResult('🔄 Testing authentication system...', 'info')
+      
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          addResult(`❌ Auth Error: ${error.message}`, 'error')
+        } else if (data.session) {
+          addResult(`✅ User is logged in: ${data.session.user.email}`, 'success')
+        } else {
+          addResult('ℹ️ No active session (not logged in)', 'info')
+        }
+        
+        // Test if auth endpoint is responsive
+        addResult('Testing auth endpoint responsiveness...', 'info')
+        const testEmail = 'test@example.com'
+        const testPassword = 'wrongpassword'
+        
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: testEmail,
+          password: testPassword
+        })
+        
+        if (signInError) {
+          if (signInError.message.includes('Invalid login credentials')) {
+            addResult('✅ Auth endpoint is working (credential validation active)', 'success')
+          } else {
+            addResult(`⚠️ Auth response: ${signInError.message}`, 'info')
+          }
+        }
+        
+      } catch (err) {
+        addResult(`❌ Auth Test Error: ${err.message}`, 'error')
+      }
+    }
+    
+    // Auto-run tests on load
+    window.onload = () => {
+      testConnection()
+      setTimeout(testAuth, 1000)
+    }
+  </script>
+</body>
+</html>
