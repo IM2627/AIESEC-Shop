@@ -13,30 +13,18 @@ export default function AdminLogin() {
     setError('')
 
     try {
-      console.log('🔐 Attempting login for:', email)
-
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password,
       })
 
-      console.log('📊 Supabase response:', { data, error })
+      if (error) throw error
 
-      if (error) {
-        console.error('❌ Supabase error:', error)
-        throw error
-      }
-
-      if (data?.session) {
-        console.log('✅ Login successful! User:', data.user.email)
-        // AuthApp.jsx will automatically detect the session change
-        // and render AdminPanel instead of AdminLogin
-      } else {
-        throw new Error('No session returned from Supabase')
+      if (!data?.session) {
+        throw new Error('No session returned. Please try again.')
       }
     } catch (err) {
-      console.error('❌ Login failed:', err)
-      setError(err.message || 'Login failed. Please try again.')
+      setError(err.message || 'Login failed. Please check your credentials and try again.')
     } finally {
       setLoading(false)
     }

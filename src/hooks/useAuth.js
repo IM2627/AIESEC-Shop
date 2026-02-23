@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, isUserAdmin } from '../lib/supabase'
 
 export function useAuth() {
   const [user, setUser] = useState(null)
@@ -13,27 +13,20 @@ export function useAuth() {
         const { data: { session }, error } = await supabase.auth.getSession()
         
         if (error) {
-          console.error('Session check error:', error)
           setUser(null)
           setIsAdmin(false)
           return
         }
 
         if (session?.user) {
-          console.log('✅ User session found:', session.user.email)
           setUser(session.user)
-          
-          // Check if user is admin by querying your admins table or checking email
-          const isAdminUser = session.user.email === 'informationmanagementun26.27@gmail.com'
-          setIsAdmin(isAdminUser)
-          console.log('🔐 Is admin:', isAdminUser)
+          const adminStatus = await isUserAdmin(session.user.id)
+          setIsAdmin(adminStatus)
         } else {
-          console.log('❌ No active session')
           setUser(null)
           setIsAdmin(false)
         }
       } catch (err) {
-        console.error('❌ Session check failed:', err)
         setUser(null)
         setIsAdmin(false)
       } finally {
@@ -46,18 +39,21 @@ export function useAuth() {
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 Auth state changed:', event)
-        
-        if (session?.user) {
-          setUser(session.user)
-          const isAdminUser = session.user.email === 'informationmanagementun26.27@gmail.com'
-          setIsAdmin(isAdminUser)
-        } else {
+        try {
+          if (session?.user) {
+            setUser(session.user)
+            const adminStatus = await isUserAdmin(session.user.id)
+            setIsAdmin(adminStatus)
+          } else {
+            setUser(null)
+            setIsAdmin(false)
+          }
+        } catch (err) {
           setUser(null)
           setIsAdmin(false)
+        } finally {
+          setLoading(false)
         }
-        
-        setLoading(false)
       }
     )
 

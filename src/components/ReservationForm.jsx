@@ -24,55 +24,44 @@ export default function ReservationForm({ item, onClose, onSuccess }) {
       return
     }
 
+    const qty = parseInt(formData.quantity, 10)
+
+    if (isNaN(qty) || qty < 1) {
+      setError('Quantity must be at least 1.')
+      setLoading(false)
+      return
+    }
+
+    if (qty > item.stock) {
+      setError(`Only ${item.stock} item${item.stock === 1 ? '' : 's'} available.`)
+      setLoading(false)
+      return
+    }
+
     try {
-      // Validate quantity
-      if (formData.quantity > item.stock) {
-        throw new Error(`Only ${item.stock} items available`)
-      }
+      // Use a single atomic RPC call to prevent race conditions where two
+      // users could simultaneously reserve the last item.
+      const { error } = await supabase.rpc('create_reservation', {
+        p_item_id: item.id,
+        p_full_name: formData.full_name.trim(),
+        p_email: formData.email.trim().toLowerCase(),
+        p_team: formData.team.trim() || 'General',
+        p_quantity: qty,
+      })
 
-      if (formData.quantity < 1) {
-        throw new Error('Quantity must be at least 1')
-      }
+      if (error) throw error
 
-      // Add timeout for the entire operation
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45000)
-      )
+      setMessage('✓ Reservation confirmed! You will be contacted when your item is ready for collection.')
 
-      const reservationPromise = async () => {
-        // Insert reservation
-        const { error: insertError } = await supabase.from('reservations').insert([
-          {
-            item_id: item.id,
-            full_name: formData.full_name,
-            email: formData.email,
-            team: formData.team || 'General',
-            quantity: parseInt(formData.quantity),
-            status: 'pending'
-          }
-        ])
-
-        if (insertError) throw insertError
-
-        // Update stock
-        const newStock = item.stock - parseInt(formData.quantity)
-        const { error: updateError } = await supabase
-          .from('items')
-          .update({ stock: newStock })
-          .eq('id', item.id)
-
-        if (updateError) throw updateError
-      }
-
-      await Promise.race([reservationPromise(), timeoutPromise])
-
-      setMessage(`✓ Reservation confirmed! Check your email (${formData.email}) for details.`)
-      
       setTimeout(() => {
         onSuccess()
-      }, 2000)
+      }, 2500)
     } catch (err) {
-      setError(err.message || 'Failed to create reservation')
+      if (err.message?.includes('Insufficient stock')) {
+        setError('Sorry, this item is no longer available in the requested quantity. Please refresh and try again.')
+      } else {
+        setError(err.message || 'Failed to create reservation. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -157,7 +146,7 @@ export default function ReservationForm({ item, onClose, onSuccess }) {
                 placeholder="your.email@example.tn"
                 disabled={loading}
               />
-              <p className="text-xs text-gray-500 mt-1.5 ml-1">Confirmation will be sent here</p>
+              <p className="text-xs text-gray-500 mt-1.5 ml-1">We'll use this to follow up on your reservation</p>
             </div>
 
             {/* Position/Department */}
@@ -192,10 +181,10 @@ export default function ReservationForm({ item, onClose, onSuccess }) {
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                 disabled={loading}
               />
-              {formData.quantity > 0 && (
+              {parseInt(formData.quantity, 10) > 0 && (
                 <div className="mt-2 p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
                   <p className="text-sm font-semibold text-green-700">
-                    💳 Total: <span className="text-lg">{(item.price * formData.quantity).toFixed(2)} TND</span>
+                    💳 Total: <span className="text-lg">{(item.price * parseInt(formData.quantity, 10)).toFixed(2)} TND</span>
                   </p>
                 </div>
               )}

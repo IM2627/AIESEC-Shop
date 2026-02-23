@@ -163,7 +163,7 @@ export default function PublicShop() {
       <footer className="bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 text-white py-10 mt-16 relative overflow-hidden">
         <div className="absolute inset-0 bg-black opacity-20"></div>
         <div className="max-w-6xl mx-auto px-4 text-center relative z-10">
-          <p className="text-xl font-semibold text-gray-200 mb-2">© 2024 AIESEC LC University - El Manar</p>
+          <p className="text-xl font-semibold text-gray-200 mb-2">© {new Date().getFullYear()} AIESEC LC University - El Manar</p>
           <p className="text-sm text-gray-400">Built with <span className="text-red-400 animate-pulse">❤️</span> by AIESEC Members</p>
           <p className="text-xs text-gray-500 mt-3">Empowering youth through leadership and exchange</p>
         </div>

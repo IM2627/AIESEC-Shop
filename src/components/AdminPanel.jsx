@@ -62,7 +62,13 @@ export default function AdminPanel() {
                 <p className="text-sm font-semibold">{user?.email}</p>
               </div>
               <button
-                onClick={signOut}
+                onClick={async () => {
+                  try {
+                    await signOut()
+                  } catch (err) {
+                    alert('Sign out failed: ' + (err.message || 'Unknown error'))
+                  }
+                }}
                 className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 px-5 py-2.5 rounded-xl text-white font-bold transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 btn-ripple"
               >
                 🚪 Sign Out

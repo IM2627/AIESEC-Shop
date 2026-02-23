@@ -19,7 +19,7 @@ export default defineConfig({
         // Manual chunks for better caching and code splitting
         manualChunks: {
           'vendor': ['react', 'react-dom'],
-          'supabase': ['@supabase/supabase-js', '@supabase/auth-ui-react', '@supabase/auth-ui-shared'],
+          'supabase': ['@supabase/supabase-js'],
         }
       }
     },

@@ -24,12 +24,19 @@ export default function ItemManager() {
 
   async function fetchItems() {
     setLoading(true)
-    const { data } = await supabase
-      .from('items')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setItems(data || [])
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('items')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setItems(data || [])
+    } catch (error) {
+      alert('Error loading items: ' + error.message)
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleImageUpload(file) {

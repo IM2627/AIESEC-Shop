@@ -12,24 +12,31 @@ export default function ReservationManager() {
 
   async function fetchReservations() {
     setLoading(true)
-    let query = supabase
-      .from('reservations')
-      .select(`
-        *,
-        items (
-          name,
-          price
-        )
-      `)
-      .order('created_at', { ascending: false })
+    try {
+      let query = supabase
+        .from('reservations')
+        .select(`
+          *,
+          items (
+            name,
+            price
+          )
+        `)
+        .order('created_at', { ascending: false })
 
-    if (filter !== 'all') {
-      query = query.eq('status', filter)
+      if (filter !== 'all') {
+        query = query.eq('status', filter)
+      }
+
+      const { data, error } = await query
+      if (error) throw error
+      setReservations(data || [])
+    } catch (error) {
+      alert('Error loading reservations: ' + error.message)
+      setReservations([])
+    } finally {
+      setLoading(false)
     }
-
-    const { data } = await query
-    setReservations(data || [])
-    setLoading(false)
   }
 
   async function updateStatus(id, newStatus) {
