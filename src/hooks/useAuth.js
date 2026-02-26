@@ -1,68 +1,75 @@
 import { useState, useEffect } from 'react'
 import { supabase, isUserAdmin } from '../lib/supabase'
 
+const ADMIN_CHECK_TIMEOUT_MS = 8000
+
 export function useAuth() {
-  const [user, setUser] = useState(null)
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [state, setState] = useState({
+    status: 'loading', // loading | unauthenticated | authorizing | authorized | unauthorized | error
+    user: null,
+    isAdmin: false,
+    error: null,
+  })
 
   useEffect(() => {
-    // Check active session on mount
-    const checkSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        
-        if (error) {
-          setUser(null)
-          setIsAdmin(false)
-          return
-        }
+    if (!supabase) {
+      setState({ status: 'error', user: null, isAdmin: false, error: new Error('Supabase not initialized') })
+      return
+    }
 
-        if (session?.user) {
-          setUser(session.user)
-          const adminStatus = await isUserAdmin(session.user.id)
-          setIsAdmin(adminStatus)
-        } else {
-          setUser(null)
-          setIsAdmin(false)
-        }
+    let cancelled = false
+
+    const setSafeState = (next) => {
+      if (!cancelled) setState(next)
+    }
+
+    const runAdminCheck = async (session) => {
+      if (!session?.user) {
+        setSafeState({ status: 'unauthenticated', user: null, isAdmin: false, error: null })
+        return
+      }
+
+      setSafeState({ status: 'authorizing', user: session.user, isAdmin: false, error: null })
+
+      try {
+        const adminPromise = isUserAdmin(session.user.id)
+        const adminStatus = await Promise.race([
+          adminPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('admin-check-timeout')), ADMIN_CHECK_TIMEOUT_MS))
+        ])
+
+        setSafeState({
+          status: adminStatus ? 'authorized' : 'unauthorized',
+          user: session.user,
+          isAdmin: !!adminStatus,
+          error: null,
+        })
       } catch (err) {
-        setUser(null)
-        setIsAdmin(false)
-      } finally {
-        setLoading(false)
+        setSafeState({ status: 'error', user: session.user, isAdmin: false, error: err })
       }
     }
 
-    checkSession()
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => runAdminCheck(session))
+      .catch((err) => setSafeState({ status: 'error', user: null, isAdmin: false, error: err }))
 
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        try {
-          if (session?.user) {
-            setUser(session.user)
-            const adminStatus = await isUserAdmin(session.user.id)
-            setIsAdmin(adminStatus)
-          } else {
-            setUser(null)
-            setIsAdmin(false)
-          }
-        } catch (err) {
-          setUser(null)
-          setIsAdmin(false)
-        } finally {
-          setLoading(false)
-        }
-      }
-    )
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      runAdminCheck(session)
+    })
 
     return () => {
+      cancelled = true
       subscription?.unsubscribe()
     }
   }, [])
 
-  return { user, isAdmin, loading }
+  return {
+    user: state.user,
+    isAdmin: state.isAdmin,
+    status: state.status,
+    loading: state.status === 'loading' || state.status === 'authorizing',
+    error: state.error,
+  }
 }
 
 export async function signOut() {

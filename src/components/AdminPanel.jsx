@@ -1,5 +1,5 @@
 import { useState, lazy, Suspense } from 'react'
-import { useAuth, signOut } from '../hooks/useAuth'
+import { signOut } from '../hooks/useAuth'
 
 // Lazy load heavy components
 const ItemManager = lazy(() => import('./ItemManager'))
@@ -14,32 +14,8 @@ const LoadingSpinner = () => (
   </div>
 )
 
-export default function AdminPanel() {
-  const { user, isAdmin, loading } = useAuth()
+export default function AdminPanel({ user }) {
   const [activeTab, setActiveTab] = useState('items')
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center">
-        <div className="text-center animate-fadeIn">
-          <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-aiesec-blue border-t-transparent"></div>
-          <p className="text-gray-700 mt-4 text-lg font-semibold">Loading Dashboard...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-4">
-        <div className="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-md animate-scaleIn">
-          <div className="text-7xl mb-4 animate-shake">🚫</div>
-          <h2 className="text-3xl font-bold text-red-600 mb-3">Access Denied</h2>
-          <p className="text-gray-600 text-lg">You don't have admin permissions to access this panel.</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-teal-50">

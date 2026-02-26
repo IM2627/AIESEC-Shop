@@ -1,132 +1,68 @@
-# AIESEC Shop MVP
+# AIESEC Shop – Single Source Brief
 
-A modern, high-performance e-commerce platform for AIESEC Local Committees to manage and sell merchandise to their members.
+This document replaces all previous Markdown files and captures the full business and technical context for the project so it can be reused for prompting, planning, and implementation.
 
-## ✨ Features
+## Purpose & Audience
+- Serve AIESEC Local Committees with a zero-payment reservation shop for merch.
+- Public members browse and reserve items without accounts; admins manage inventory and reservations.
+- Operates entirely on free-tier tooling (Vercel/Netlify + Supabase) for low operational cost.
 
-### Public Shop
-- 🛍️ Browse available merchandise
-- 📱 Fully responsive design
-- 🔄 Real-time stock updates
-- 📝 Easy reservation system
-- ⚡ Lightning-fast loading with code splitting
-- ✉️ Email confirmation
+## Core Capabilities
+- **Public shop**: Browse active items, see stock, open a reservation modal, submit reservations, receive confirmation feedback.
+- **Reservations**: Create reservations even when not authenticated; statuses include `pending`, `collected`, `cancelled`.
+- **Admin portal**: Email/password login, verify admin role, manage items (CRUD, stock, active flag), manage reservations (view, filter, update status), and see real-time updates.
+- **Real-time updates**: Supabase subscriptions push item/reservation changes to both interfaces.
 
-### Admin Panel (Separate Interface)
-- 🔐 Secure authentication
-- 📦 Item management (CRUD)
-- 📊 Reservation tracking
-- 📈 Status management (pending/collected/cancelled)
-- 📉 Stock control
-- 🚀 Independent from public shop for faster performance
+## Architecture
+- **Multi-page React (Vite)**: `index.html` for the public shop and `admin.html` for the admin portal so neither side loads the other's code.
+- **Entry points**: `src/main.jsx` (public) and `src/admin-main.jsx` (admin) bootstrap their respective apps.
+- **Component split**: Public UI (PublicShop + ReservationForm), Admin UI (AdminLogin, AdminPanel, ItemManager, ReservationManager), shared `supabase.js` client and `useAuth` hook.
+- **Build**: Vite multi-page config with manual chunks; React.lazy for heavy admin components; vendor chunking for React and Supabase; optimized caching.
 
-## 🏗️ Architecture
+## Data Model (Supabase/PostgreSQL)
+- **items**: `id`, `name`, `description`, `price`, `stock`, `image_url`, `active`, timestamps.
+- **reservations**: `id`, `item_id`, `full_name`, `email`, `team`, `quantity`, `status (pending|collected|cancelled)`, `notes`, timestamps.
+- **admin_users**: `id` (matches `auth.users`), `email`, timestamps.
 
-**Multi-Page Application** with complete separation:
-- Public Shop: `index.html` → Loads only customer-facing code
-- Admin Portal: `admin.html` → Loads only admin functionality
+## Security Model
+- Supabase Auth (email/password); JWT handled by `@supabase/supabase-js`.
+- Row-Level Security (RLS):
+	- Public can `select` active items.
+	- Public can `insert` reservations; select only their reservations (email match).
+	- Admin-only `insert/update/delete` on items and reservations; admin detection via presence in `admin_users` table.
+- Separate admin entry (`admin.html`) keeps admin code and auth flows out of the public bundle.
 
-**Performance Features:**
-- ⚡ Lazy loading for all heavy components
-- 📦 Code splitting (60% smaller initial bundle)
-- 🎯 Optimized vendor chunks
-- 💾 Better browser caching
+## Performance Characteristics
+- Multi-page split removes admin code from the public payload (≈60% smaller initial load).
+- React.lazy + Suspense for admin panels; vendor chunking and caching; esbuild/terser minification in production.
+- Real-time listeners kept minimal; only items and reservations channels are subscribed.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+## Environment & Configuration
+- Required env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` in `.env.local`.
+- Ports: Vite defaults to `3000` (auto-shifts if busy); public at `/`, admin at `/admin.html`.
 
-## 🛠️ Tech Stack
-
-- **Frontend:** React 18 + Vite
-- **Styling:** Tailwind CSS
-- **Backend:** Supabase (PostgreSQL + Auth + RLS)
-- **Build:** Multi-page with code splitting
-- **Deployment:** Vercel/Netlify + Supabase
-
-## 🚀 Quick Start
-
-See [SETUP.md](SETUP.md) for detailed setup instructions.
-
+## Setup (local)
 ```bash
-# Install dependencies
 npm install
-
-# Configure environment variables
-cp .env.local.example .env.local
-# Edit .env.local with your Supabase credentials
-
-# Run development server
-npm run dev              # Both interfaces
-npm run dev:shop         # Public shop only
-npm run dev:admin        # Admin portal only
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
+cp .env.local.example .env.local   # add Supabase URL and anon key
+npm run dev         # both interfaces
+# or
+npm run dev:shop    # public only
+npm run dev:admin   # admin only
 ```
 
-## 🌐 Access Points
+## Deploy
+- **Frontend**: Vercel or Netlify; deploy `dist/` with both `index.html` and `admin.html` preserved.
+- **Backend**: Supabase (DB + Auth + Storage). Apply schema, RLS policies, and insert admin record matching the Supabase user ID.
+- Env vars on hosting: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 
-- **Public Shop**: `http://localhost:3000/`
-- **Admin Portal**: `http://localhost:3000/admin.html`
+## Testing & Monitoring
+- Smoke test: load public shop, create reservation, confirm it appears in Admin > Reservations, update status, verify reflected in public view.
+- Check console/network for Supabase errors; validate RLS by attempting item mutation as non-admin (should fail).
 
-## 📁 Project Structure
+## Prompting Hints
+- When asking for changes, specify target interface (public vs admin) and entry file (`index.html` or `admin.html`).
+- For data-layer changes, mention RLS implications and whether admin-only or public access is expected.
+- For performance requests, state if they affect initial load (public) or admin-only flows.
 
-```
-aiesec-shop/
-├── index.html                       # Public shop entry
-├── admin.html                       # Admin portal entry
-├── src/
-│   ├── main.jsx                     # Public shop bootstrap
-│   ├── admin-main.jsx               # Admin bootstrap
-│   ├── App.jsx                      # Public shop app
-│   ├── AdminApp.jsx                 # Admin app
-│   ├── components/
-│   │   ├── PublicShop.jsx           # Main shop interface
-│   │   ├── ReservationForm.jsx      # Reservation modal
-│   │   ├── AdminPanel.jsx           # Admin dashboard
-│   │   ├── AdminLogin.jsx           # Admin authentication
-│   │   ├── ItemManager.jsx          # Item CRUD
-│   │   └── ReservationManager.jsx   # Reservation management
-│   ├── hooks/
-│   │   └── useAuth.js               # Authentication hook
-│   ├── lib/
-│   │   └── supabase.js              # Supabase client
-│   └── index.css                    # Global styles
-├── vite.config.js                   # Multi-page build config
-├── ARCHITECTURE.md                  # Architecture docs
-├── PERFORMANCE.md                   # Performance guide
-└── SETUP.md                         # Setup instructions
-```
-
-## 🔒 Security
-
-- Row-Level Security (RLS) policies enforce all permissions
-- Public users can browse and reserve items
-- Only authenticated admins can modify data
-- JWT-based authentication handled by Supabase
-
-## 🌐 Deployment
-
-The app is designed to be deployed on:
-- **Frontend:** Vercel (free tier)
-- **Backend:** Supabase (free tier)
-
-Both services offer generous free tiers perfect for LC operations.
-
-## 📝 License
-
-MIT License - feel free to use this for your Local Committee!
-
-## 🤝 Contributing
-
-Built for AIESEC LC University - El Manar. Feel free to fork and customize for your LC!
-
-## 📞 Support
-
-For questions or issues, contact your LC Tech Team or refer to the [complete implementation guide](AIESEC-Shop-MVP-Guide.md).
-
----
-
-**Built with ❤️ for AIESEC**
+**Built for AIESEC LC University – El Manar**
