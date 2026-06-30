@@ -1,21 +1,26 @@
 import { lazy, Suspense } from 'react'
 import './index.css'
 
-// Lazy load PublicShop component for better performance
 const PublicShop = lazy(() => import('./components/PublicShop'))
+
+function AppFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="shop-panel w-full max-w-md px-8 py-10 text-center">
+        <div className="mx-auto h-14 w-14 animate-spin rounded-full border-[3px] border-[rgba(12,24,18,0.16)] border-t-[var(--color-gold)]" />
+        <p className="mt-5 shop-kicker">AIESEC SHOP</p>
+        <p className="mt-3 font-display text-4xl uppercase leading-none text-[var(--color-ink)]">Loading the shop</p>
+        <p className="mt-4 text-sm leading-6 text-[var(--color-muted)]">
+          Preparing the official AIESEC University collection.
+        </p>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   return (
-    <Suspense 
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-aiesec-blue to-aiesec-teal">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent"></div>
-            <p className="text-white mt-4 text-lg">Loading AIESEC Shop...</p>
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<AppFallback />}>
       <PublicShop />
     </Suspense>
   )

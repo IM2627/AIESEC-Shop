@@ -1,185 +1,322 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ITEM_CATEGORIES } from '../lib/catalog'
+import { isMissingItemSchemaField } from '../lib/itemSchema'
 import { supabase } from '../lib/supabase'
+import FinalBanner from './FinalBanner'
+import ProductCarousel from './ProductCarousel'
 import ReservationForm from './ReservationForm'
+import ShopHero from './ShopHero'
+import ShopHighlights from './ShopHighlights'
+
+function LoadingCard() {
+  return (
+    <div className="shop-card overflow-hidden p-3">
+      <div className="aspect-[4/4.35] animate-pulse rounded-[1.35rem] bg-[rgba(12,24,18,0.08)]" />
+      <div className="space-y-3 px-1 pb-1 pt-4">
+        <div className="h-4 w-3/4 animate-pulse rounded-full bg-[rgba(12,24,18,0.08)]" />
+        <div className="h-3 w-1/2 animate-pulse rounded-full bg-[rgba(12,24,18,0.06)]" />
+        <div className="mt-5 flex items-center justify-between">
+          <div className="h-6 w-24 animate-pulse rounded-full bg-[rgba(12,24,18,0.08)]" />
+          <div className="h-11 w-28 animate-pulse rounded-full bg-[rgba(12,24,18,0.08)]" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoadingCarousel({ label = 'Products' }) {
+  return (
+    <div className="shop-rail-shell mt-8">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="shop-kicker">{label}</div>
+        <div className="flex items-center gap-2">
+          <div className="h-11 w-11 animate-pulse rounded-full bg-[rgba(12,24,18,0.08)]" />
+          <div className="h-11 w-11 animate-pulse rounded-full bg-[rgba(12,24,18,0.08)]" />
+        </div>
+      </div>
+
+      <div className="shop-rail">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="shop-rail-slide">
+            <LoadingCard />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function PublicShop() {
   const [items, setItems] = useState([])
   const [selectedItem, setSelectedItem] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [legacyCatalogMode, setLegacyCatalogMode] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
-    fetchItems()
-    
-    // Only subscribe if supabase is available
-    if (!supabase) {
-      console.error('Supabase not initialized')
-      return
+    let active = true
+
+    async function loadItems() {
+      setLoading(true)
+      setError('')
+
+      if (!supabase) {
+        setItems([])
+        setError('The shop is currently being configured. Please try again shortly.')
+        setLoading(false)
+        return
+      }
+
+      try {
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error('The shop database is taking too long to respond. Please try again.')),
+            10000,
+          )
+        })
+
+        let data
+
+        try {
+          const request = supabase
+            .from('items')
+            .select('*')
+            .or('active.eq.true,is_spotlight.eq.true')
+            .order('is_spotlight', { ascending: false })
+            .order('created_at', { ascending: false })
+
+          const response = await Promise.race([request, timeoutPromise])
+
+          if (response.error) {
+            throw response.error
+          }
+
+          data = response.data || []
+          if (active) {
+            setLegacyCatalogMode(false)
+          }
+        } catch (schemaError) {
+          if (!isMissingItemSchemaField(schemaError)) {
+            throw schemaError
+          }
+
+          const fallbackRequest = supabase
+            .from('items')
+            .select('*')
+            .eq('active', true)
+            .order('created_at', { ascending: false })
+
+          const fallbackResponse = await Promise.race([fallbackRequest, timeoutPromise])
+
+          if (fallbackResponse.error) {
+            throw fallbackResponse.error
+          }
+
+          data = (fallbackResponse.data || []).map((item) => ({
+            ...item,
+            is_spotlight: false,
+            category: item.category || '',
+          }))
+
+          if (active) {
+            setLegacyCatalogMode(true)
+          }
+        }
+
+        if (active) {
+          setItems(data || [])
+        }
+      } catch (fetchError) {
+        if (active) {
+          setItems([])
+          const msg = fetchError?.message || ''
+          const isNetworkError =
+            !msg ||
+            msg.toLowerCase().includes('failed to fetch') ||
+            msg.toLowerCase().includes('networkerror') ||
+            msg.toLowerCase().includes('network request failed') ||
+            msg.toLowerCase().includes('load failed')
+          setError(
+            isNetworkError
+              ? 'Unable to reach the shop database. Please check your connection and try again.'
+              : msg || 'Unable to load the collection right now.',
+          )
+        }
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
+      }
     }
 
-    // Subscribe to real-time updates on items table
-    const subscription = supabase
-      .channel('items-channel')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'items' }, 
-        () => fetchItems()
-      )
+    loadItems()
+
+    if (!supabase) {
+      return () => {
+        active = false
+      }
+    }
+
+    const channel = supabase
+      .channel('shop-items-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+        loadItems()
+      })
       .subscribe()
 
     return () => {
-      subscription.unsubscribe()
+      active = false
+      channel.unsubscribe()
     }
-  }, [])
+  }, [refreshTick])
 
-  async function fetchItems() {
-    setLoading(true)
-    
-    if (!supabase) {
-      console.error('Supabase not initialized')
-      setItems([])
-      setLoading(false)
-      return
-    }
+  const catalogItems = useMemo(
+    () => items.filter((item) => item.active),
+    [items],
+  )
 
-    try {
-      // Add timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Fetch timed out')), 10000)
-      )
+  const featuredItem = useMemo(
+    () =>
+      items.find((item) => item.is_spotlight) ||
+      catalogItems.find((item) => item.stock > 0 && item.image_url) ||
+      catalogItems.find((item) => item.image_url) ||
+      catalogItems[0] ||
+      null,
+    [catalogItems, items],
+  )
 
-      const fetchPromise = supabase
-        .from('items')
-        .select('*')
-        .eq('active', true)
-        .order('created_at', { ascending: false })
+  const categoryGroups = useMemo(
+    () =>
+      ITEM_CATEGORIES.map((category) => ({
+        category,
+        items: catalogItems.filter((item) => item.category === category),
+      })),
+    [catalogItems],
+  )
 
-      const { data, error } = await Promise.race([fetchPromise, timeoutPromise])
-      
-      if (error) {
-        console.error('Error fetching items:', error)
-        setItems([])
-      } else {
-        setItems(data || [])
-      }
-    } catch (error) {
-      console.error('Failed to fetch items:', error)
-      setItems([])
-    } finally {
-      setLoading(false)
-    }
+  const itemCount = catalogItems.length
+
+  const hasCategoryData = useMemo(
+    () => catalogItems.some((item) => ITEM_CATEGORIES.includes(item.category)),
+    [catalogItems],
+  )
+
+  function scrollToCatalog() {
+    document.getElementById('product-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-aiesec-blue via-blue-600 to-aiesec-teal text-white py-16 shadow-2xl relative overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-5"></div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white opacity-10 rounded-full -mr-48 -mt-48"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-white opacity-10 rounded-full -ml-32 -mb-32"></div>
-        <div className="max-w-6xl mx-auto px-4 relative z-10 animate-slideDown">
-          <h1 className="text-5xl font-extrabold mb-2 flex items-center gap-3">
-            <span className="text-6xl">🎽</span>
-            AIESEC LC Shop
-          </h1>
-          <p className="text-xl text-blue-100">✨ LC University - El Manar</p>
-          <p className="text-sm text-blue-200 mt-2">Quality merchandise for our community</p>
-        </div>
-      </header>
+    <div className="shop-shell min-h-screen text-[var(--color-ink)]">
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_top,rgba(8,17,13,0.54),transparent_68%)]" />
+        <div className="absolute left-[-12rem] top-28 h-80 w-80 rounded-full bg-[rgba(195,255,189,0.24)] blur-3xl" />
+        <div className="absolute right-[-10rem] top-[24rem] h-[28rem] w-[28rem] rounded-full bg-[rgba(160,131,36,0.18)] blur-3xl" />
+      </div>
 
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-12">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-aiesec-blue border-t-transparent"></div>
-            <p className="text-gray-600 mt-4">Loading merchandise...</p>
-          </div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <p className="text-gray-600 text-lg">No items available right now. Check back soon!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {items.map((item, index) => (
-              <div 
-                key={item.id} 
-                className="bg-white rounded-2xl shadow-lg overflow-hidden card-hover transform transition-all duration-300 animate-scaleIn"
-                style={{ animationDelay: `${index * 0.1}s` }}
-              >
-                {/* Item Image */}
-                <div className="h-56 bg-gradient-to-br from-aiesec-blue to-aiesec-teal flex items-center justify-center relative overflow-hidden group">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                  ) : (
-                    <span className="text-white text-7xl transform group-hover:scale-110 transition-transform duration-300">📦</span>
-                  )}
-                  {item.stock === 0 && (
-                    <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center">
-                      <span className="text-white text-2xl font-bold">OUT OF STOCK</span>
-                    </div>
-                  )}
-                </div>
+      <main className="pb-16">
+        <ShopHero
+          featuredItem={featuredItem}
+          onBrowseClick={scrollToCatalog}
+          onFeaturedSelect={setSelectedItem}
+        />
 
-                {/* Item Details */}
-                <div className="p-5">
-                  <h2 className="text-2xl font-bold text-gray-800 mb-2">{item.name}</h2>
-                  <p className="text-gray-600 text-sm line-clamp-2 mb-4">{item.description || 'No description available'}</p>
-                  
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-3xl font-extrabold bg-gradient-to-r from-aiesec-orange to-red-500 bg-clip-text text-transparent">
-                        {item.price}
-                      </span>
-                      <span className="text-lg font-semibold text-gray-600">TND</span>
-                    </div>
-                    {item.stock > 0 ? (
-                      <span className="bg-gradient-to-r from-green-400 to-emerald-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md flex items-center gap-1">
-                        ✓ {item.stock} left
-                      </span>
-                    ) : (
-                      <span className="bg-gradient-to-r from-red-400 to-red-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md">
-                        ✗ Sold Out
-                      </span>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => setSelectedItem(item)}
-                    disabled={item.stock === 0}
-                    className={`w-full py-3 rounded-xl font-bold transition-all duration-300 btn-ripple ${
-                      item.stock > 0
-                        ? 'bg-gradient-to-r from-aiesec-blue to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transform hover:-translate-y-1'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {item.stock > 0 ? '🛒 Reserve Now' : '❌ Unavailable'}
-                  </button>
-                </div>
+        <section id="product-catalog" className="px-4 pb-8 pt-1 sm:px-6 lg:px-8 lg:pb-12 lg:pt-2" aria-labelledby="catalog-title">
+          <div className="mx-auto max-w-7xl">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className="shop-kicker">Collection</p>
+                <h2 id="catalog-title" className="mt-3 font-display text-5xl uppercase leading-[0.9] text-[var(--color-ink)] sm:text-6xl">
+                  {hasCategoryData ? 'Browse by category' : 'Our items'}
+                </h2>
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--color-muted)] sm:text-base">
+                  {hasCategoryData
+                    ? 'Explore the official collection by category, compare items, and reserve what you need.'
+                    : 'Explore the official collection, compare items, and reserve what you need.'}
+                </p>
               </div>
-            ))}
+
+              <div className="flex flex-wrap gap-3">
+                <div className="shop-chip">{itemCount} active item{itemCount === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+
+            {legacyCatalogMode ? (
+              <div className="shop-panel mt-8 border-[rgba(160,131,36,0.16)] bg-[rgba(255,251,242,0.94)] p-5">
+                <p className="shop-kicker !text-[var(--color-gold)]">Catalog compatibility mode</p>
+                <p className="mt-3 text-sm leading-7 text-[var(--color-ink-soft)]">
+                  The latest category and spotlight database updates have not been applied yet, so the shop is temporarily showing the classic catalog view.
+                </p>
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div className="mt-8 space-y-5">
+                {ITEM_CATEGORIES.map((category) => (
+                  <LoadingCarousel key={category} label={category} />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="shop-panel mt-8 border-[rgba(143,31,29,0.12)] bg-[rgba(255,244,242,0.92)] p-6">
+                <p className="shop-kicker !text-[var(--color-ruby)]">Shop unavailable</p>
+                <p className="mt-3 text-base leading-7 text-[var(--color-ruby)]">{error}</p>
+                <button
+                  onClick={() => setRefreshTick((t) => t + 1)}
+                  className="shop-button-ghost mt-5 text-sm"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : catalogItems.length === 0 ? (
+              <div className="shop-panel mt-8 p-6">
+                <p className="shop-kicker">No items yet</p>
+                <p className="mt-3 text-base leading-7 text-[var(--color-ink-soft)]">
+                  The collection will appear here as soon as items are published.
+                </p>
+              </div>
+            ) : !hasCategoryData ? (
+              <div className="mt-8">
+                <ProductCarousel items={catalogItems} onSelect={setSelectedItem} label="All items" />
+              </div>
+            ) : (
+              <div className="mt-8 space-y-5">
+                {categoryGroups.map(({ category, items: categoryItems }) => (
+                  <ProductCarousel
+                    key={category}
+                    items={categoryItems}
+                    onSelect={setSelectedItem}
+                    label={category}
+                    emptyMessage={`No ${category.toLowerCase()} published yet.`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </section>
+
+        <ShopHighlights />
+        <FinalBanner />
       </main>
 
-      {/* Footer */}
-      <footer className="bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 text-white py-10 mt-16 relative overflow-hidden">
-        <div className="absolute inset-0 bg-black opacity-20"></div>
-        <div className="max-w-6xl mx-auto px-4 text-center relative z-10">
-          <p className="text-xl font-semibold text-gray-200 mb-2">© {new Date().getFullYear()} AIESEC LC University - El Manar</p>
-          <p className="text-sm text-gray-400">Built with <span className="text-red-400 animate-pulse">❤️</span> by AIESEC Members</p>
-          <p className="text-xs text-gray-500 mt-3">Empowering youth through leadership and exchange</p>
+      <footer className="px-4 pb-10 sm:px-6 lg:px-8">
+        <div className="shop-panel-dark mx-auto max-w-7xl px-6 py-6 text-sm text-white/66">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-semibold text-white">Official AIESEC University shop</p>
+            <p>Presented by F&amp;L Department, Developed by TM&amp;IM Department, Mohamed Kallel 2026</p>
+          </div>
         </div>
       </footer>
 
-      {/* Reservation Modal */}
-      {selectedItem && (
+      {selectedItem ? (
         <ReservationForm
           item={selectedItem}
           onClose={() => setSelectedItem(null)}
           onSuccess={() => {
             setSelectedItem(null)
-            fetchItems() // Refresh items after reservation
+            setRefreshTick((currentValue) => currentValue + 1)
           }}
         />
-      )}
+      ) : null}
     </div>
   )
 }
